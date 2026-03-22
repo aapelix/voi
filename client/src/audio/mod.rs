@@ -8,7 +8,9 @@ use cpal::{
 use crate::audio::{buffer::AudioBuffer, input::start_input_stream, output::start_output_stream};
 
 pub mod buffer;
+pub mod decoder;
 pub mod device;
+pub mod encoder;
 mod input;
 mod output;
 
@@ -34,14 +36,15 @@ pub type SharedAudio = Arc<Mutex<AudioController>>;
 
 pub fn set_device(
     audio: &SharedAudio,
-    buffer: AudioBuffer,
+    capture_buffer: AudioBuffer,
+    playback_buffer: AudioBuffer,
     in_device: cpal::Device,
     out_device: cpal::Device,
 ) -> anyhow::Result<()> {
     let mut audio = audio.lock().unwrap();
 
-    let input_stream = start_input_stream(&in_device, buffer.clone())?;
-    let output_stream = start_output_stream(&out_device, buffer)?;
+    let input_stream = start_input_stream(&in_device, capture_buffer)?;
+    let output_stream = start_output_stream(&out_device, playback_buffer)?;
 
     input_stream.play()?;
     output_stream.play()?;

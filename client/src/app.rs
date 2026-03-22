@@ -1,14 +1,18 @@
 use eframe::egui;
 use std::sync::{Arc, Mutex};
 
-use crate::audio::{
-    AudioController, SharedAudio, buffer::AudioBuffer, device::get_device_name, get_in_devices,
-    get_out_devices,
+use crate::{
+    audio::{
+        AudioController, SharedAudio, buffer::AudioBuffer, decoder::start_decoder,
+        device::get_device_name, encoder::start_encoder, get_in_devices, get_out_devices,
+    },
+    net::{PacketReceiver, PacketSender},
 };
 
 pub struct Application {
     audio: SharedAudio,
-    buffer: AudioBuffer,
+    capture_buffer: AudioBuffer,
+    playback_buffer: AudioBuffer,
     in_devices: Vec<cpal::Device>,
     in_device_names: Vec<String>,
     out_devices: Vec<cpal::Device>,
@@ -17,11 +21,16 @@ pub struct Application {
     out_selected: usize,
 }
 
+pub const SAMPLE_RATE: usize = 48000;
+pub const FRAME_SIZE: usize = SAMPLE_RATE / 50;
+
 impl Application {
-    pub fn new() -> Self {
+    pub fn new(tx: PacketSender, rx: PacketReceiver) -> Self {
         let host = Arc::new(cpal::default_host());
         let audio = Arc::new(Mutex::new(AudioController::new()));
-        let buffer = AudioBuffer::new(44100 * 10); // 10 seconds of audio at 44.1kHz
+
+        let capture_buffer = AudioBuffer::new(44100 * 10);
+        let playback_buffer = AudioBuffer::new(44100 * 10);
 
         let in_devices = get_in_devices(&host).unwrap_or_default();
         let in_device_names = in_devices.iter().map(|d| get_device_name(d)).collect();
@@ -29,9 +38,13 @@ impl Application {
         let out_devices = get_out_devices(&host).unwrap_or_default();
         let out_device_names = out_devices.iter().map(|d| get_device_name(d)).collect();
 
+        start_encoder(capture_buffer.clone(), tx);
+        start_decoder(rx, playback_buffer.clone());
+
         Self {
             audio,
-            buffer,
+            capture_buffer,
+            playback_buffer,
             in_devices,
             in_device_names,
             out_devices,
@@ -79,11 +92,20 @@ impl eframe::App for Application {
             if ui.button("Save").clicked() {
                 let in_device = self.in_devices[self.in_selected].clone();
                 let out_device = self.out_devices[self.out_selected].clone();
-                let buffer = self.buffer.clone();
+
+                let capture_buffer = self.capture_buffer.clone();
+                let playback_buffer = self.playback_buffer.clone();
+
                 let audio = self.audio.clone();
 
                 std::thread::spawn(move || {
-                    let _ = crate::audio::set_device(&audio, buffer, in_device, out_device);
+                    let _ = crate::audio::set_device(
+                        &audio,
+                        capture_buffer,
+                        playback_buffer,
+                        in_device,
+                        out_device,
+                    );
                 });
             }
         });
